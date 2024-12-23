@@ -1296,7 +1296,7 @@ class Game {
                 const distance = Math.sqrt(dx * dx + dy * dy);
         
                 if (distance < this.player.size / 2 + projectile.size) {
-                    this.player.health -= Math.sqrt(this.difficulty); // Apply damage to the player
+                    this.player.health -= Math.sqrt(this.level); // Apply damage to the player
                     this.projectiles.splice(pIndex, 1); // Remove the projectile after it hits the player
                     this.playerDeath(); // Check if the player is dead
                 }
