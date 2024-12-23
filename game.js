@@ -1,4 +1,8 @@
-//an you add a pause menu that shows up when press menu on controller or esc, only in game, when gamerunning is true. Can be toggled with the same key to hide it and go back to the game. Run stats that looks the same as they do in stats are shown on the right, the middle of the screen should still be clear, the left should have a few options, resume and quit
+// TODO: fix purple enemies
+// TODO: nerf fire rate late game
+// TODO: upgrade notif -> key to open (e) (share button)
+// TODO: leaderboard
+// TODO: replay
 
 class UIElement {
     constructor(x, y, width, height) {
@@ -26,22 +30,66 @@ class UIElement {
 }
 
 class UIButton extends UIElement {
-    constructor(x, y, width, height, text, onClick) {
+    constructor(x, y, width, height, text, onClick, tooltip = '') {
         super(x, y, width, height);
         this.text = text;
         this.onClick = onClick;
+        this.tooltip = tooltip; // Add tooltip property
     }
 
     draw(ctx) {
         super.draw(ctx);
+        ctx.beginPath();
         ctx.fillStyle = this.hovered ? 'darkgray' : 'gray'; // Change color on hover
-        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.roundRect(this.x, this.y, this.width, this.height, 5);
+        ctx.fill();
+        ctx.stroke();
 
         ctx.fillStyle = 'black';
         ctx.font = '20px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(this.text, this.x + this.width / 2, this.y + this.height / 2);
+        
+        // Draw tooltip if hovered
+        if (this.hovered && this.tooltip !== '') {
+            const xOffset = 300;
+
+            ctx.beginPath();
+            ctx.fillStyle = 'darkgray'; // Change color on hover
+            ctx.roundRect(this.x + xOffset, ctx.canvas.height / 2 - this.height / 2 - this.height, this.width, this.height * 3, 5);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = 'black';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'left';
+            this.wrapText(ctx, this.tooltip, this.x + xOffset + 5, ctx.canvas.height / 2 - this.height / 2 - this.height + 10, this.width - 20, 16); // Position tooltip above the button
+        }
+    }
+
+    wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(' ');
+        let line = '';
+        let lines = [];
+    
+        for (let n = 0; n < words.length; n++) {
+            const testLine = line + words[n] + ' ';
+            const metrics = ctx.measureText(testLine);
+            const testWidth = metrics.width;
+    
+            if (testWidth > maxWidth && n > 0) {
+                lines.push(line);
+                line = words[n] + ' ';
+            } else {
+                line = testLine;
+            }
+        }
+        lines.push(line);
+    
+        for (let i = 0; i < lines.length; i++) {
+            ctx.fillText(lines[i], x, y + i * lineHeight);
+        }
     }
 }
 
@@ -58,7 +106,10 @@ class UIPanel extends UIElement {
     draw(ctx) {
         if (!this.visible) return;
         ctx.fillStyle = 'rgba(127, 127, 127, 1)';
-        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.beginPath();
+        ctx.roundRect(this.x, this.y, this.width, this.height, 5);
+        ctx.fill();
+        ctx.stroke();
         this.children.forEach(child => child.draw(ctx));
     }
 
@@ -186,23 +237,63 @@ class Player {
         this.angle = 0;
         this.xp = 0;
         this.level = 1;
+        this.up = 0;
         this.xpToNextLevel = 10;
         this.health = 3;
         this.maxHealth = 3;
         this.upgrades = {
-            bulletSpeed: 3,
-            bulletSize: 5,
-            fireRate: 500,
-            bulletDamage: 1,
-            health: 3,
-            healthRegen: 0,
-            speed: 3,
-            xpDropRate: 1,
-            pickupRange: 15,
-            bulletPenetration: 1,
-            xpGravitationSpeed: 0.05,
-            xpGravitationRange: 100,
-            upgradeCount: 3
+            bulletSpeed: {
+                value: 3,
+                description: "Speed of bullets"
+            },
+            bulletSize: {
+                value: 5,
+                description: "Size of bullets"
+            },
+            fireRate: {
+                value: 500,
+                description: "Millisecond interval between shooting bullets",
+            },
+            bulletDamage: {
+                value: 1,
+                description: "Damage bullet does to enemies"
+            },
+            health: {
+                value: 3,
+                description: "Player health"
+            },
+            healthRegen: {
+                value: 0,
+                description: "Health increased per second"
+            },
+            speed: {
+                value: 3,
+                description: "Movement speed of player"
+            },
+            xpDropRate: {
+                value: 1,
+                description: "How much xp dropped by enemies is multiplied by"
+            },
+            pickupRange: {
+                value: 15,
+                description: "Range the player can pickup xp from"
+            },
+            bulletPenetration: {
+                value: 1,
+                description: "How many enemies a bullet can go threw before being destroyed"
+            },
+            xpGravitationSpeed: {
+                value: 0.05,
+                description: "XP acceleration rate toward the player"
+            },
+            xpGravitationRange: {
+                value: 100,
+                description: "XP range to be picked up by the players gravity"
+            },
+            upgradeCount: {
+                value: 3,
+                description: "How many upgrades you get to choose from when you level up"
+            }
         };
 
         this.worldSize = worldSize;
@@ -228,32 +319,32 @@ class Player {
 
     applyUpgrade(upgrade) {
         const upgradeLogic = {
-            bulletSpeed: () => this.upgrades.bulletSpeed += 2 / Math.log2(this.upgrades.bulletSpeed),
-            bulletSize: () => this.upgrades.bulletSize += 5 / Math.log2(this.upgrades.bulletSize),
+            bulletSpeed: () => this.upgrades.bulletSpeed.value += 2 / Math.log2(this.upgrades.bulletSpeed.value),
+            bulletSize: () => this.upgrades.bulletSize.value += 5 / Math.log2(this.upgrades.bulletSize.value),
             fireRate: () => {
                 const decayFactor = 0.5; // Initial decay factor (20%)
-                this.upgrades.fireRate *= (1 - decayFactor / Math.log2(this.upgrades.fireRate));
+                this.upgrades.fireRate.value *= (1 - decayFactor / Math.log2(this.upgrades.fireRate.value));
             },
-            bulletDamage: () => this.upgrades.bulletDamage += 1,
+            bulletDamage: () => this.upgrades.bulletDamage.value += 1 / Math.log2(this.upgrades.bulletDamage.value / 10 + 2),
             health: () => {
-                this.upgrades.health += 1;
-                this.maxHealth += 1;
+                this.upgrades.health.value += 2 / Math.log2(this.upgrades.health.value / 2);
+                this.maxHealth = this.upgrades.health.value;
                 this.health += this.health / this.maxHealth;
             },
-            speed: () => this.upgrades.speed += 2 / Math.log2(this.upgrades.speed),
-            xpDropRate: () => this.upgrades.xpDropRate += 0.5 / Math.log2(this.upgrades.xpDropRate + 1),
-            pickupRange: () => this.upgrades.pickupRange += 10 / Math.log2(this.upgrades.pickupRange),
-            healthRegen: () => this.upgrades.healthRegen += 0.05,
-            bulletPenetration: () => this.upgrades.bulletPenetration += 1,
-            xpGravitationSpeed: () => this.upgrades.xpGravitationSpeed += 0.1 / Math.log2(this.upgrades.xpGravitationSpeed + 2),
-            xpGravitationRange: () => this.upgrades.xpGravitationRange += 50 / (Math.log2(this.upgrades.xpGravitationRange / 2) - 1),
-            upgradeCount: () => this.upgrades.upgradeCount += Math.min(this.getAvailableUpgrades().length - 1, 1.585 / Math.log2(this.upgrades.upgradeCount))
+            speed: () => this.upgrades.speed.value += 2 / Math.log2(this.upgrades.speed.value),
+            xpDropRate: () => this.upgrades.xpDropRate.value += 0.5 / Math.log2(this.upgrades.xpDropRate.value + 1),
+            pickupRange: () => this.upgrades.pickupRange.value += 10 / Math.log2(this.upgrades.pickupRange.value),
+            healthRegen: () => this.upgrades.healthRegen.value += 0.05,
+            bulletPenetration: () => this.upgrades.bulletPenetration.value += 1,
+            xpGravitationSpeed: () => this.upgrades.xpGravitationSpeed.value += 0.1 / Math.log2(this.upgrades.xpGravitationSpeed.value + 2),
+            xpGravitationRange: () => this.upgrades.xpGravitationRange.value += 50 / (Math.log2(this.upgrades.xpGravitationRange.value / 2) - 1),
+            upgradeCount: () => this.upgrades.upgradeCount.value += Math.min(this.getAvailableUpgrades().length - 1, 1 / Math.log2(this.upgrades.upgradeCount.value))
         };
     
         if (upgradeLogic[upgrade]) {
-            const before = this.upgrades[upgrade];
+            const before = this.upgrades[upgrade].value;
             upgradeLogic[upgrade]();
-            const after = this.upgrades[upgrade];
+            const after = this.upgrades[upgrade].value;
             return `${upgrade}: ${simplifyNumber(before)} -> ${simplifyNumber(after)}`;
         }
         return null;
@@ -290,8 +381,8 @@ class Player {
         }
 
         // Update the player's position
-        const newX = this.x + dx * this.upgrades.speed;
-        const newY = this.y + dy * this.upgrades.speed;
+        const newX = this.x + dx * this.upgrades.speed.value;
+        const newY = this.y + dy * this.upgrades.speed.value;
         this.updatePosition(newX, newY);
 
         // Gamepad aiming
@@ -335,7 +426,7 @@ class Player {
         ctx.fillStyle = 'white';
         ctx.font = '10px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`${Math.round(this.health)}/${this.maxHealth}`, this.x, barY + barHeight - 1);
+        ctx.fillText(`${Math.round(this.health)}/${Math.round(this.maxHealth)}`, this.x, barY + barHeight - 1);
     }
 
     drawAimLine(ctx) {
@@ -353,14 +444,15 @@ class Player {
 }
 
 class Projectile {
-    constructor(x, y, vx, vy, canDamagePlayer = false) {
+    constructor(x, y, vx, vy, size, canDamagePlayer = false) {
         this.x = x;
         this.y = y;
         this.vx = vx;
         this.vy = vy;
+        this.size = size;
         this.hitCount = 0; // Track how many unique enemies the projectile has hit
         this.hitEnemies = new Set(); // Track unique enemies hit
-        this.canDamagePlayer = false;
+        this.canDamagePlayer = canDamagePlayer;
         this.dragFactor = 0.998; // Adjust this value to change the drag effect
     }
 
@@ -403,9 +495,9 @@ class Projectile {
     }
 
     draw(ctx) {
-        ctx.fillStyle = this.getColor();
+        ctx.fillStyle = this.canDamagePlayer ? "red" : this.getColor();
         ctx.beginPath();
-        ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.fill();
     }
 }
@@ -419,6 +511,7 @@ class Enemy {
         this.maxHealth = health; // Store max health
         this.level = level;
         this.radius = 15; // Assuming a radius for collision detection
+        this.angle = 0;
     }
 
     update(player, enemies) {
@@ -498,7 +591,7 @@ class Enemy {
         ctx.fillStyle = 'white';
         ctx.font = '10px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`${Math.round(this.health)}/${this.maxHealth}`, this.x, barY + barHeight - 1);
+        ctx.fillText(`${Math.round(this.health)}/${Math.round(this.maxHealth)}`, this.x, barY + barHeight - 1);
     }
 }
 
@@ -608,6 +701,77 @@ class SpikyEnemy extends Enemy {
     }
 }
 
+//game.enemies.add(new RotatingShooterEnemy(game.player.x + 100, game.player.y, 5, 5, 10, 5)) Spawns an enemy but it's angle, x and y become NaN
+class RotatingShooterEnemy extends Enemy {
+    constructor(x, y, speed, health, level, rotationRadius, rotationSpeed, projectiles) {
+        super(x, y, speed, health, level);
+        this.rotationRadius = rotationRadius;
+        this.rotationSpeed = rotationSpeed;
+        this.angle = 0;
+        this.vx = 0;
+        this.vy = 0;
+        this.maxVelocity = 4 + this.level / 5;
+        this.shootInterval = 5000 - Math.pow(1.2, this.level);
+        this.lastShotTime = 0;
+        this.projectiles = projectiles; // Reference to the game's projectile list
+    }
+
+    update(player, enemies, currentTime) {
+        const targetX = player.x + this.rotationRadius * Math.cos(this.angle);
+        const targetY = player.y + this.rotationRadius * Math.sin(this.angle);
+
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 0) {
+            this.vx += (dx / distance) * this.speed;
+            this.vy += (dy / distance) * this.speed;
+        }
+
+        const velocityMagnitude = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        if (velocityMagnitude > this.maxVelocity) {
+            this.vx = (this.vx / velocityMagnitude) * this.maxVelocity;
+            this.vy = (this.vy / velocityMagnitude) * this.maxVelocity;
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        this.vx *= 0.95;
+        this.vy *= 0.95;
+
+        this.angle += this.rotationSpeed * (Math.PI / 180);
+
+        if ((currentTime - this.lastShotTime) * 1000 > this.shootInterval) {
+            this.shootProjectile(player);
+            this.lastShotTime = currentTime;
+        }
+
+        super.update(player, enemies);
+    }
+
+    shootProjectile(player) {
+        const angleToPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+        const projectileSpeed = 5;
+        const projectile = new Projectile(
+            this.x,
+            this.y,
+            Math.cos(angleToPlayer) * projectileSpeed,
+            Math.sin(angleToPlayer) * projectileSpeed,
+            2,
+            true
+        );
+        projectile.x += projectile.vx * 3;
+        projectile.y += projectile.vy * 3;
+        this.projectiles.push(projectile); // Add to the game's projectile list
+    }
+
+    draw(ctx) {
+        super.draw(ctx);
+    }
+}
+
 class XPObject {
     constructor(x, y, amount) {
         this.x = x;
@@ -642,13 +806,13 @@ class XPObject {
         const dy = player.y - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        const maxRange = player.upgrades.xpGravitationRange;
+        const maxRange = player.upgrades.xpGravitationRange.value;
         const dragFactor = 0.995; // Factor to reduce velocity when out of range
 
         if (distance <= maxRange) {
             // Within gravity range, apply gravitational pull
             const speedFactor = (maxRange - distance) / maxRange;
-            const pull = player.upgrades.xpGravitationSpeed * speedFactor;
+            const pull = player.upgrades.xpGravitationSpeed.value * speedFactor;
 
             const directionX = dx / distance;
             const directionY = dy / distance;
@@ -770,6 +934,12 @@ class Game {
     resizeCanvas() {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
+
+        if (this.uiManager && this.uiManager.panels) {
+            this.uiManager.panels.forEach((panel) => {
+                panel.draw(this.ctx)
+            })
+        }
     }
 
     loadStats() {
@@ -805,11 +975,9 @@ class Game {
         this.uiManager.panels = []; // Clear existing panels
         const mainMenuPanel = new UIPanel(100, 100, 300, 400);
         const playButton = new UIButton(150, 150, 200, 50, 'Play', () => {
-            console.log('Play button clicked'); // Debug log
             this.startGame();
         });
         const statsButton = new UIButton(150, 220, 200, 50, 'Stats', () => {
-            console.log('Stats button clicked'); // Debug log
             this.displayStatsMenu();
         });
 
@@ -833,12 +1001,11 @@ class Game {
                 const totalSeconds = this.stats.totalTimePlayed;
                 const hours = Math.floor(totalSeconds / 3600);
                 const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const seconds = totalSeconds % 60;
+                const seconds = Math.round(totalSeconds % 60 * 10) / 10;
                 return `Total Time Played: ${hours > 0 ? `${hours}h ` : ''}${minutes}m ${seconds}s`;
             })(),
         ]
             
-
         statsText.forEach((text, index) => {
             const statText = new UIElement(100, 100 + index * 40, 0, 0);
             statText.draw = (ctx) => {
@@ -856,7 +1023,10 @@ class Game {
         const bestRunPanel = new UIPanel(100, 360, 300, height);
         bestRunPanel.draw = (ctx) => {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; // Dark background
-            ctx.fillRect(bestRunPanel.x, bestRunPanel.y, bestRunPanel.width, bestRunPanel.height);
+            ctx.beginPath();
+            ctx.roundRect(bestRunPanel.x, bestRunPanel.y, bestRunPanel.width, bestRunPanel.height, 5);
+            ctx.fill();
+            ctx.stroke();
 
             ctx.fillStyle = 'white';
             ctx.font = '20px Arial';
@@ -869,7 +1039,7 @@ class Game {
 
             let yOffset = 25;
             for (const [key, value] of Object.entries(this.stats.bestRun.upgrades)) {
-                bestRunStats.push(`${key}: ${simplifyNumber(value)}`);
+                bestRunStats.push(`${key}: ${simplifyNumber(value.value)}`);
             }
 
             bestRunStats.forEach((text, index) => {
@@ -883,7 +1053,10 @@ class Game {
         const lastRunPanel = new UIPanel(450, 360, 300, height);
         lastRunPanel.draw = (ctx) => {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; // Dark background
-            ctx.fillRect(lastRunPanel.x, lastRunPanel.y, lastRunPanel.width, lastRunPanel.height);
+            ctx.beginPath();
+            ctx.roundRect(lastRunPanel.x, lastRunPanel.y, lastRunPanel.width, lastRunPanel.height, 5);
+            ctx.fill();
+            ctx.stroke();
 
             ctx.fillStyle = 'white';
             ctx.font = '20px Arial';
@@ -896,7 +1069,7 @@ class Game {
 
             let yOffset = 25;
             for (const [key, value] of Object.entries(this.stats.lastRun.upgrades)) {
-                lastRunStats.push(`${key}: ${simplifyNumber(value)}`);
+                lastRunStats.push(`${key}: ${simplifyNumber(value.value)}`);
             }
 
             lastRunStats.forEach((text, index) => {
@@ -924,12 +1097,12 @@ class Game {
         this.uiManager.panels = []; // Clear existing panels
 
         // Create the pause menu panel
-        const pauseMenuPanel = new UIPanel(50, 50, 200, this.canvas.height - 100);
-        const resumeButton = new UIButton(75, 100, 150, 50, 'Resume', () => {
+        const pauseMenuPanel = new UIPanel(0, 0, 400, this.canvas.height);
+        const resumeButton = new UIButton(100, 100, 150, 50, 'Resume', () => {
             this.togglePause();
             this.isPaused = false;
         });
-        const quitButton = new UIButton(75, 170, 150, 50, 'Quit', () => {
+        const quitButton = new UIButton(100, 170, 150, 50, 'Quit', () => {
             this.gameRunning = false;
             this.isPaused = false;
             this.setupMainMenu();
@@ -940,7 +1113,7 @@ class Game {
         this.uiManager.addPanel(pauseMenuPanel);
 
         // Create the run stats panel
-        const statsPanel = new UIPanel(this.canvas.width - 350, 50, 300, this.canvas.height - 100);
+        const statsPanel = new UIPanel(this.canvas.width - 400, 0, 400, this.canvas.height);
         const runStats = [
             `Duration: ${simplifyNumber(Math.floor(this.elapsedTime / 60))}m ${simplifyNumber(Math.round(this.elapsedTime % 60))}s`,
             `Level: [${this.player.level}] (${this.player.xp}/${this.player.xpToNextLevel})`
@@ -966,7 +1139,7 @@ class Game {
                 ctx.fillStyle = 'white';
                 ctx.font = '20px Arial';
                 ctx.textAlign = 'left';
-                ctx.fillText(`${key}: ${simplifyNumber(value)}`, upgradeText.x, upgradeText.y);
+                ctx.fillText(`${key}: ${simplifyNumber(value.value)}`, upgradeText.x, upgradeText.y);
             };
             statsPanel.addChild(upgradeText);
             yOffset += 30; // Space between each upgrade
@@ -1005,7 +1178,6 @@ class Game {
 
     gameLoop(timestamp) {
         const timeSinceLastFrame = timestamp - this.lastFrameTime;
-        this.stats.totalTimePlayed += (timestamp - this.lastFrameTime) / 1000;
 
         if (this.isPaused) {
             return;
@@ -1026,13 +1198,14 @@ class Game {
             return;
         }
 
+        this.stats.totalTimePlayed += 1 / 120;
         this.elapsedTime += 1 / 120;
         const levelTime = Math.floor(this.elapsedTime / 60) + 1;
         if (levelTime > this.level) {
             this.level = levelTime;
             this.spawnInterval = Math.max(250, this.spawnInterval / 1.15);
             if (this.level >= 10 && this.level % 5) {
-                game.spawnSpikyEnemy(this.level);
+                this.spawnSpikyEnemy(this.level);
             }
         }
 
@@ -1067,36 +1240,71 @@ class Game {
         this.player.draw(this.ctx);
 
         // Regenerate health
-        this.player.health = Math.min(this.player.maxHealth, this.player.health + this.player.upgrades.healthRegen * (timeSinceLastFrame / 1000));
+        this.player.health = Math.min(this.player.maxHealth, this.player.health + this.player.upgrades.healthRegen.value * (timeSinceLastFrame / 1000));
 
         this.projectiles.forEach((projectile, pIndex) => {
             projectile.update();
             projectile.draw(this.ctx);
-
-            this.enemies.forEach((enemy, eIndex) => {
-                const dx = projectile.x - enemy.x;
-                const dy = projectile.y - enemy.y;
+        
+            // Check for collision with enemies
+            if (!projectile.canDamagePlayer) {
+                this.enemies.forEach((enemy, eIndex) => {
+                    const dx = projectile.x - enemy.x;
+                    const dy = projectile.y - enemy.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+            
+                    if (distance < this.player.upgrades.bulletSize.value + 15 && !projectile.hitEnemies.has(enemy)) {
+                        enemy.health -= this.player.upgrades.bulletDamage.value;
+                        projectile.hitEnemies.add(enemy);
+                        projectile.hitCount++;
+            
+                        const velocity = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy);
+                        // this.playSoundBasedOnVelocity(velocity);
+            
+                        if (enemy.health <= 0) {
+                            this.handleEnemyDestruction(eIndex);
+                        }
+            
+                        if (projectile.hitCount >= this.player.upgrades.bulletPenetration.value) {
+                            this.projectiles.splice(pIndex, 1);
+                        }
+                    } else if (enemy instanceof SpikyEnemy) {
+                        if (distance < enemy.radius * (1 + enemy.health / enemy.maxHealth) + this.player.upgrades.bulletSize.value + 15) {
+                            enemy.health -= this.player.upgrades.bulletDamage.value;
+                            projectile.hitEnemies.add(enemy);
+                            projectile.hitCount++;
+                
+                            const velocity = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy);
+                            // this.playSoundBasedOnVelocity(velocity);
+                
+                            if (enemy.health <= 0) {
+                                this.handleEnemyDestruction(eIndex);
+                            }
+                
+                            if (projectile.hitCount >= this.player.upgrades.bulletPenetration.value) {
+                                this.projectiles.splice(pIndex, 1);
+                            }
+                        }
+                    }
+                });
+            }
+        
+            // Check for collision with the player
+            if (projectile.canDamagePlayer) {
+                const dx = projectile.x - this.player.x;
+                const dy = projectile.y - this.player.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < this.player.upgrades.bulletSize + 15 && !projectile.hitEnemies.has(enemy)) {
-                    enemy.health -= this.player.upgrades.bulletDamage;
-                    projectile.hitEnemies.add(enemy);
-                    projectile.hitCount++;
-
-                    const velocity = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy);
-                    //this.playSoundBasedOnVelocity(velocity);
-
-                    if (enemy.health <= 0) {
-                        this.handleEnemyDestruction(eIndex);
-                    }
-
-                    if (projectile.hitCount >= this.player.upgrades.bulletPenetration) {
-                        this.projectiles.splice(pIndex, 1);
-                    }
+        
+                if (distance < this.player.size / 2 + projectile.size) {
+                    this.player.health -= Math.sqrt(this.difficulty); // Apply damage to the player
+                    this.projectiles.splice(pIndex, 1); // Remove the projectile after it hits the player
+                    this.playerDeath(); // Check if the player is dead
                 }
-            });
-
-            if (projectile.vx == 0 && projectile.vy == 0) this.projectiles.splice(pIndex, 1)        
+                
+            }
+        
+            // Remove projectiles that have stopped or are out of bounds
+            if (projectile.vx === 0 && projectile.vy === 0) this.projectiles.splice(pIndex, 1);
             if (projectile.x < this.player.x - this.worldSize) this.projectiles.splice(pIndex, 1);
             if (projectile.x > this.player.x + this.worldSize) this.projectiles.splice(pIndex, 1);
             if (projectile.y < this.player.y - this.worldSize) this.projectiles.splice(pIndex, 1);
@@ -1111,10 +1319,19 @@ class Game {
             this.spawnEnemy(this.level);
             this.spawnRandomXP(this.level);
             this.lastSpawnTime = timestamp;
+            if (Math.random() < 0.2) {
+                this.spawnShootingEnemy(this.level);
+            }
         }
 
         this.enemies.forEach((enemy, index) => {
-            enemy.update(this.player, this.enemies, this.xpObjects);
+            if (enemy instanceof SpikyEnemy) {
+                enemy.update(this.player, this.enemies, this.xpObjects);
+            } else if (enemy instanceof RotatingShooterEnemy) {
+                enemy.update(this.player, this.enemies, this.elapsedTime);
+            } else {
+                enemy.update(this.player, this.enemies);
+            }
             enemy.draw(this.ctx);
 
             const dx = this.player.x - enemy.x;
@@ -1123,32 +1340,56 @@ class Game {
 
             if (distance < this.player.size / 2 + 15 && !this.canSelectUpgrade) { // add support for the spikies
                 this.player.health -= enemy.level * (timeSinceLastFrame / 1000);
-
-                if (this.player.health <= 0) {
-                    this.gameRunning = false;
-                    this.stats.gamesPlayed++;
-                    this.saveStats();
-                    this.uiManager.panels = [];
-                    this.setupMainMenu();
-                    this.uiManager.draw();
+                this.playerDeath();
+            } else if (enemy instanceof SpikyEnemy) {
+                if (distance < enemy.radius * (1 + enemy.health / enemy.maxHealth) + this.player.size / 2 + 15 && !this.canSelectUpgrade) { // add support for the spikies
+                    this.player.health -= enemy.level * (timeSinceLastFrame / 1000);
+                    this.playerDeath();
                 }
             }
         });
 
         this.ctx.restore();
 
+        if (isNaN(this.player.health)) {
+            this.player.health = this.player.maxHealth;
+        }
+        if (this.player.up > 0) {
+            this.upgradeAvailable = true;
+            this.displayUpgradeMessage();
+        } else {
+            this.upgradeAvailable = false;
+        }
         this.drawProgressBar(this.elapsedTime);
         this.drawUpgradeHistory();
 
         requestAnimationFrame(this.gameLoop.bind(this));
     }
 
+    displayUpgradeMessage() {
+        this.ctx.fillStyle = 'green';
+        this.ctx.font = '20px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(`You have ${this.player.up} Upgrade points. Open menu with [E] or (X)`, this.canvas.width / 2, this.canvas.height - 50);
+    }
+
+    playerDeath() {
+        if (this.player.health <= 0) {
+            this.gameRunning = false;
+            this.stats.gamesPlayed++;
+            this.saveStats();
+            this.uiManager.panels = [];
+            this.setupMainMenu();
+            this.uiManager.draw();
+        }
+    }
+
     shootProjectile(timestamp) {
-        if (timestamp - this.lastShotTime > this.player.upgrades.fireRate) {
+        if (timestamp - this.lastShotTime > this.player.upgrades.fireRate.value) {
             const playerVelocity = this.player.getVelocity();
-            const bulletVx = Math.cos(this.player.angle) * this.player.upgrades.bulletSpeed + playerVelocity.vx / 5;
-            const bulletVy = Math.sin(this.player.angle) * this.player.upgrades.bulletSpeed + playerVelocity.vy / 5;
-            this.projectiles.push(new Projectile(this.player.x, this.player.y, bulletVx, bulletVy));
+            const bulletVx = Math.cos(this.player.angle) * this.player.upgrades.bulletSpeed.value + playerVelocity.vx / 5;
+            const bulletVy = Math.sin(this.player.angle) * this.player.upgrades.bulletSpeed.value + playerVelocity.vy / 5;
+            this.projectiles.push(new Projectile(this.player.x, this.player.y, bulletVx, bulletVy, this.player.upgrades.bulletSize.value));
             this.lastShotTime = timestamp;
             this.trackShotFired();
         }
@@ -1177,30 +1418,13 @@ class Game {
         const enemy = this.enemies[enemyIndex];
         
         if (enemy instanceof SpikyEnemy) {
-            const sqrtHealth = Math.sqrt(enemy.health);
-            const numXPOrbs = Math.floor(sqrtHealth);
-            const xpAmount = Math.floor(sqrtHealth);
-
-            for (let i = 0; i < numXPOrbs; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const velocityMagnitude = Math.random() * sqrtHealth;
-                const vx = Math.cos(angle) * velocityMagnitude;
-                const vy = Math.sin(angle) * velocityMagnitude;
-
-                const xpOrb = new XPObject(enemy.x, enemy.y, xpAmount);
-                xpOrb.vx = vx;
-                xpOrb.vy = vy;
-
-                console.log("orb: " + i)
-                console.log(xpOrb)
-                xpOrb.x += xpOrb.vx * 3;
-                xpOrb.y += xpOrb.vy * 3;
-
-                this.xpObjects.push(xpOrb);
-                console.log(xpOrb)
-            }
+            const sqrtHealth = Math.floor(Math.sqrt(enemy.health)) * 2;
+            game.burstXP(enemy.x, enemy.y, sqrtHealth, sqrtHealth, 10)
+        } else if (enemy instanceof RotatingShooterEnemy) {
+            const sqrtHealth = Math.floor(Math.sqrt(enemy.health)) / 2;
+            game.burstXP(enemy.x, enemy.y, sqrtHealth, sqrtHealth, 10)
         } else {
-            const xpDrop = Math.floor(enemy.level * this.player.upgrades.xpDropRate + Math.random() * 2);
+            const xpDrop = Math.floor(enemy.level * this.player.upgrades.xpDropRate.value + Math.random() * 2);
             this.xpObjects.push(new XPObject(enemy.x, enemy.y, xpDrop));
         }
      
@@ -1211,6 +1435,24 @@ class Game {
             this.spawnEnemy(enemy.level - 1);
         } else if (Math.random() > 0.5) {
             this.spawnEnemy(enemy.level);
+        }
+    }
+
+    burstXP (x, y, xpOrbs, amount, force) {
+        for (let i = 0; i < xpOrbs; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const velocityMagnitude = Math.random() * force;
+            const vx = Math.cos(angle) * velocityMagnitude;
+            const vy = Math.sin(angle) * velocityMagnitude;
+
+            const xpOrb = new XPObject(game.player.x + 100, game.player.y, amount);
+            xpOrb.vx = vx;
+            xpOrb.vy = vy;
+
+            xpOrb.x += xpOrb.vx * 5;
+            xpOrb.y += xpOrb.vy * 5;
+
+            this.xpObjects.push(xpOrb);
         }
     }
 
@@ -1245,13 +1487,13 @@ class Game {
             const dy = this.player.y - xp1.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < this.player.upgrades.pickupRange) {
+            if (distance < this.player.upgrades.pickupRange.value) {
                 this.player.xp += xp1.amount;
                 this.stats.totalXPCollected += xp1.amount;
                 this.xpObjects.splice(i, 1);
                 i--; // Adjust index after removal
 
-                if (this.player.xp >= this.player.xpToNextLevel) {
+                while (this.player.xp >= this.player.xpToNextLevel) {
                     this.levelUp();
                 }
             }
@@ -1281,6 +1523,18 @@ class Game {
         const y = this.player.y + Math.sin(angle) * distance;
         const health = 100 * fixedLevel;
         this.enemies.push(new SpikyEnemy(x, y, 2, health, 5, fixedLevel * 5));
+    }
+
+    spawnShootingEnemy(level) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = 1000;
+        const x = this.player.x + Math.cos(angle) * distance;
+        const y = this.player.y + Math.sin(angle) * distance;
+        const speed = Math.sqrt(this.level);
+        const health = Math.max(1, this.level * 2);
+        const rad = Math.level * 25 + 250;
+
+        game.enemies.push(new RotatingShooterEnemy(x, y, speed, health, this.level, rad, speed, this.projectiles));
     }
 
     spawnRandomXP(scale) {
@@ -1340,8 +1594,10 @@ class Game {
         this.ctx.fillText(`[${this.player.level}] XP: ${this.player.xp}/${this.player.xpToNextLevel}`, barX + barWidth / 2, barY + barHeight - 5);
     }
 
+    //Can you make it so when you level up, instead of a menu popping up, show "can upgrade [e] or (x)" and if I press e on kb or x or controller it opens the upgrade menu 
     levelUp() {
         this.player.level++;
+        this.player.up++;
         this.player.xp -= this.player.xpToNextLevel;
         this.player.xpToNextLevel += 10 
             + Math.floor(this.player.level / 10) 
@@ -1352,19 +1608,8 @@ class Game {
                     Math.floor(this.player.level / 200)
                 )
             );
-
-        const upgrades = this.player.getAvailableUpgrades(); // Get available upgrades dynamically
-        this.chosenUpgrades = []; // Reset chosen upgrades
-        while (this.chosenUpgrades.length < Math.floor(this.player.upgrades.upgradeCount)) {
-            const randomUpgrade = upgrades[Math.floor(Math.random() * upgrades.length)];
-            if (!this.chosenUpgrades.includes(randomUpgrade)) {
-                this.chosenUpgrades.push(randomUpgrade);
-            }
-        }
-        this.canSelectUpgrade = true;
-        this.displayUpgradeOptions(this.chosenUpgrades);
-
-        window.addEventListener('keydown', this.selectUpgrade.bind(this)); // Use bind to ensure correct context
+        //this.canSelectUpgrade = true;
+        this.upgradeAvailable = true; // Set flag to indicate upgrade is available
     }
 
     //This seems to work, but only after I move my cursor and for some reason that updates the position? also if the game is playing for the ui please don't draw the white background
@@ -1390,14 +1635,15 @@ class Game {
                 buttonY, 
                 buttonWidth, 
                 buttonHeight, 
-                `Upgrade ${index + 1}: ${upgrade}`, 
+                `${upgrade}`, 
                 () => {
                     this.applyUpgrade(upgrade);
                     this.canSelectUpgrade = false; // Set canSelectUpgrade to false
                     this.uiManager.panels = []; // Clear the upgrade panel
                     this.gameRunning = true; // Resume the game
                     requestAnimationFrame(this.gameLoop.bind(this));
-                }
+                },
+                this.player.upgrades[upgrade].description
             );
             upgradePanel.addChild(upgradeButton);
         });
@@ -1408,7 +1654,7 @@ class Game {
     }
 
     selectUpgrade(event) {
-        if (event.key >= '1' && event.key <= `${Math.floor(this.player.upgrades.upgradeCount)}` && this.canSelectUpgrade) {
+        if (event.key >= '1' && event.key <= `${Math.floor(this.player.upgrades.upgradeCount.value)}` && this.canSelectUpgrade) {
             window.removeEventListener('keydown', this.selectUpgrade.bind(this)); // Ensure correct context
             this.canSelectUpgrade = false;
             const selectedUpgrade = this.chosenUpgrades[event.key - 1]; // Access chosenUpgrades from the class property
@@ -1421,6 +1667,7 @@ class Game {
     applyUpgrade(upgrade) {
         const upgradeResult = this.player.applyUpgrade(upgrade);
         if (upgradeResult) {
+            this.player.up--;
             this.stats.totalUpgradesChosen++;
             this.upgradeHistory.push(upgradeResult);
             if (this.upgradeHistory.length > 10) {
@@ -1471,9 +1718,12 @@ class Game {
                 } else if (event.key === 'Enter') {
                     this.handleMenuSelection();
                 }
-            }
-            if (event.key === 'Escape' && this.gameRunning) {
-                this.togglePause();
+            } else {
+                if (event.key === 'Escape' && this.gameRunning) {
+                    this.togglePause();
+                } else if (this.upgradeAvailable && event.key === 'e') {
+                    this.openUpgradeMenu();
+                }
             }
         });
     
@@ -1487,9 +1737,40 @@ class Game {
             const mouseY = event.clientY - rect.top;
             this.player.angle = Math.atan2(mouseY - this.canvas.height / 2, mouseX - this.canvas.width / 2);
         });
+
+        window.addEventListener('gamepadconnected', () => {
+            this.checkGamepadInput();
+        });
+    }
+
+    checkGamepadInput() {
+        const gamepad = navigator.getGamepads()[0];
+        if (!gamepad) return;
+    
+        const currentGamepadState = {
+            select: gamepad.buttons[2].pressed // Assuming 'X' button is button 0
+        };
+    
+        if (this.upgradeAvailable && currentGamepadState.select) {
+            this.openUpgradeMenu();
+        }
+    
+        requestAnimationFrame(this.checkGamepadInput.bind(this));
+    }
+
+    openUpgradeMenu() {
+        const upgrades = this.player.getAvailableUpgrades();
+        this.chosenUpgrades = [];
+        while (this.chosenUpgrades.length < Math.floor(this.player.upgrades.upgradeCount.value)) {
+            const randomUpgrade = upgrades[Math.floor(Math.random() * upgrades.length)];
+            if (!this.chosenUpgrades.includes(randomUpgrade)) {
+                this.chosenUpgrades.push(randomUpgrade);
+            }
+        }
+        this.upgradeAvailable = false;
+        this.displayUpgradeOptions(this.chosenUpgrades);
     }
 }
-
 
 
 function simplifyNumber(num) {
@@ -1498,9 +1779,9 @@ function simplifyNumber(num) {
     } else if (num >= 1e3) {
         return (num / 1e3).toFixed(1) + 'k';
     } else if (num >= 1) {
-        return num.toFixed(2);
+        return num.toFixed(1);
     } else {
-        return num.toExponential(2);
+        return num.toFixed(2);
     }
 }
 
